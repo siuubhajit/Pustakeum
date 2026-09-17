@@ -1,6 +1,17 @@
-import React from "react";
+import React, { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Sun, Moon, Plus, Minus, Square, X } from "lucide-react";
+import {
+  Sun,
+  Moon,
+  Plus,
+  Minus,
+  Square,
+  X,
+  FolderPlus,
+  FilePlus,
+  Download,
+  ChevronDown,
+} from "lucide-react";
 import { TabBar } from "./TabBar";
 import { TabItem, ThemeMode } from "../../state/useLibraryStore";
 
@@ -11,7 +22,9 @@ interface TitlebarProps {
   onCloseTab: (id: string, e: React.MouseEvent) => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
-  onImportBook: () => void;
+  onPickFiles: () => void;
+  onPickFolder: () => void;
+  onExportCatalog: (fmt: "json" | "csv") => void;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
@@ -21,8 +34,12 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   onCloseTab,
   theme,
   onToggleTheme,
-  onImportBook,
+  onPickFiles,
+  onPickFolder,
+  onExportCatalog,
 }) => {
+  const [showAddMenu, setShowAddMenu] = useState(false);
+
   const handleMinimize = async () => {
     try {
       await getCurrentWindow().minimize();
@@ -69,16 +86,99 @@ export const Titlebar: React.FC<TitlebarProps> = ({
         />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-        <button
-          className="pk-btn"
-          style={{ padding: "3px 8px", fontSize: "12px" }}
-          onClick={onImportBook}
-          title="Import Document (EPUB, PDF, CBZ, TXT)"
-        >
-          <Plus size={13} />
-          <span>Add Book</span>
-        </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", position: "relative" }}>
+        {/* Add / Import Menu Dropdown */}
+        <div style={{ position: "relative" }}>
+          <button
+            className="pk-btn"
+            style={{ padding: "3px 8px", fontSize: "12px" }}
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            title="Import or Export Documents"
+          >
+            <Plus size={13} />
+            <span>Manage Library</span>
+            <ChevronDown size={11} />
+          </button>
+
+          {showAddMenu && (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                marginTop: "4px",
+                width: "200px",
+                backgroundColor: "var(--pk-bg-surface)",
+                border: "1px solid var(--pk-border-default)",
+                borderRadius: "var(--pk-radius-md)",
+                boxShadow: "var(--pk-shadow-lg)",
+                zIndex: 100,
+                display: "flex",
+                flexDirection: "column",
+                padding: "4px 0",
+              }}
+              onMouseLeave={() => setShowAddMenu(false)}
+            >
+              <button
+                className="pk-shelf-item"
+                style={{ border: "none", width: "100%", textAlign: "left", background: "transparent" }}
+                onClick={() => {
+                  setShowAddMenu(false);
+                  onPickFiles();
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <FilePlus size={14} />
+                  <span>Import Files...</span>
+                </div>
+              </button>
+
+              <button
+                className="pk-shelf-item"
+                style={{ border: "none", width: "100%", textAlign: "left", background: "transparent" }}
+                onClick={() => {
+                  setShowAddMenu(false);
+                  onPickFolder();
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <FolderPlus size={14} />
+                  <span>Import Folder...</span>
+                </div>
+              </button>
+
+              <div style={{ height: "1px", background: "var(--pk-border-subtle)", margin: "4px 0" }} />
+
+              <button
+                className="pk-shelf-item"
+                style={{ border: "none", width: "100%", textAlign: "left", background: "transparent" }}
+                onClick={() => {
+                  setShowAddMenu(false);
+                  onExportCatalog("json");
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Download size={14} />
+                  <span>Export Catalog (JSON)</span>
+                </div>
+              </button>
+
+              <button
+                className="pk-shelf-item"
+                style={{ border: "none", width: "100%", textAlign: "left", background: "transparent" }}
+                onClick={() => {
+                  setShowAddMenu(false);
+                  onExportCatalog("csv");
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Download size={14} />
+                  <span>Export Catalog (CSV)</span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
 
         <button
           className="pk-btn-icon"
@@ -114,4 +214,3 @@ export const Titlebar: React.FC<TitlebarProps> = ({
     </header>
   );
 };
-

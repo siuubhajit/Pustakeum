@@ -9,6 +9,8 @@ import {
   Sun,
   Moon,
   Type,
+  List,
+  Highlighter,
 } from "lucide-react";
 import { ReaderSettings } from "../../state/useLibraryStore";
 
@@ -20,6 +22,10 @@ interface ReaderHudProps {
   onUpdateSettings: (s: Partial<ReaderSettings>) => void;
   onToggleSearch: () => void;
   isSearchOpen: boolean;
+  onToggleToc: () => void;
+  isTocOpen: boolean;
+  onToggleAnnotations: () => void;
+  isAnnotationsOpen: boolean;
 }
 
 export const ReaderHud: React.FC<ReaderHudProps> = ({
@@ -30,9 +36,41 @@ export const ReaderHud: React.FC<ReaderHudProps> = ({
   onUpdateSettings,
   onToggleSearch,
   isSearchOpen,
+  onToggleToc,
+  isTocOpen,
+  onToggleAnnotations,
+  isAnnotationsOpen,
 }) => {
   return (
     <div className="pk-micro-hud">
+      {/* Table of Contents Drawer Toggle */}
+      <button
+        className={`pk-btn-icon ${isTocOpen ? "active" : ""}`}
+        onClick={onToggleToc}
+        title="Table of Contents (Chapters)"
+        style={{
+          background: isTocOpen ? "var(--pk-bg-active)" : "transparent",
+          color: isTocOpen ? "var(--pk-accent-primary)" : "inherit",
+        }}
+      >
+        <List size={15} />
+      </button>
+
+      {/* Annotations Drawer Toggle */}
+      <button
+        className={`pk-btn-icon ${isAnnotationsOpen ? "active" : ""}`}
+        onClick={onToggleAnnotations}
+        title="View Highlights & Notes"
+        style={{
+          background: isAnnotationsOpen ? "var(--pk-bg-active)" : "transparent",
+          color: isAnnotationsOpen ? "var(--pk-accent-primary)" : "inherit",
+        }}
+      >
+        <Highlighter size={14} />
+      </button>
+
+      <div style={{ width: "1px", height: "16px", background: "var(--pk-border-default)" }} />
+
       {/* Page Navigation */}
       <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
         <button
@@ -176,4 +214,3 @@ export const ReaderHud: React.FC<ReaderHudProps> = ({
     </div>
   );
 };
-

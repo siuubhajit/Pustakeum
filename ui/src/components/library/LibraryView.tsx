@@ -21,6 +21,8 @@ interface LibraryViewProps {
     type: "all" | "format" | "author" | "series" | "tag";
     value?: string;
   }) => void;
+  onRevealInExplorer: (filePath: string) => void;
+  onConvertBook: (book: BookView) => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -34,6 +36,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onSearchChange,
   selectedShelf,
   onSelectShelf,
+  onRevealInExplorer,
+  onConvertBook,
 }) => {
   // Filter books according to selected virtual shelf
   const filteredBooks = useMemo(() => {
@@ -78,6 +82,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onOpenBook={onOpenBook}
         onEditMetadata={onEditMetadata}
         onDeleteBook={onDeleteBook}
+        onRevealInExplorer={onRevealInExplorer}
+        onConvertBook={onConvertBook}
       />
     </div>
   );

@@ -32,3 +32,4 @@ lazy_static = "1.5"
 regex = "1.10"
 axum = "0.7"
 tower-http = { version = "0.5", features = ["cors"] }
+rfd = "0.15"

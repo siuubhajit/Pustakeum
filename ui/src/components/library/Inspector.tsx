@@ -7,6 +7,8 @@ interface InspectorProps {
   onOpenBook: (book: BookView) => void;
   onEditMetadata: () => void;
   onDeleteBook: (id: number) => void;
+  onRevealInExplorer: (filePath: string) => void;
+  onConvertBook: (book: BookView) => void;
 }
 
 export const Inspector: React.FC<InspectorProps> = ({
@@ -14,6 +16,8 @@ export const Inspector: React.FC<InspectorProps> = ({
   onOpenBook,
   onEditMetadata,
   onDeleteBook,
+  onRevealInExplorer,
+  onConvertBook,
 }) => {
   if (!book) {
     return (
@@ -65,7 +69,7 @@ export const Inspector: React.FC<InspectorProps> = ({
       </div>
 
       {/* Primary Actions */}
-      <div style={{ display: "flex", gap: "8px" }}>
+      <div style={{ display: "flex", gap: "6px" }}>
         <button
           className="pk-btn pk-btn-primary"
           style={{ flex: 1, justifyContent: "center", padding: "8px 12px" }}
@@ -89,6 +93,26 @@ export const Inspector: React.FC<InspectorProps> = ({
           title="Delete Book from Library"
         >
           <Trash2 size={15} />
+        </button>
+      </div>
+
+      {/* Secondary Industrial Tools */}
+      <div style={{ display: "flex", gap: "6px" }}>
+        <button
+          className="pk-btn"
+          style={{ flex: 1, justifyContent: "center", fontSize: "12px", padding: "6px 8px" }}
+          onClick={() => onRevealInExplorer(book.file_path)}
+          title="Reveal File in Explorer / Finder"
+        >
+          <span>Reveal File</span>
+        </button>
+        <button
+          className="pk-btn"
+          style={{ flex: 1, justifyContent: "center", fontSize: "12px", padding: "6px 8px" }}
+          onClick={() => onConvertBook(book)}
+          title="Convert to Markdown, HTML, or TXT via AST"
+        >
+          <span>Convert Format</span>
         </button>
       </div>
 

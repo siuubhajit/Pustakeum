@@ -416,3 +416,126 @@ pub fn get_library_stats(conn: &Connection) -> Result<LibraryStats> {
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotationView {
+    pub id: i64,
+    pub uuid: String,
+    pub book_id: i64,
+    pub annotation_type: String,
+    pub page_index: Option<i32>,
+    pub selected_text: Option<String>,
+    pub note_comment: Option<String>,
+    pub color_hex: String,
+    pub created_at: String,
+}
+
+pub fn insert_annotation(
+    conn: &Connection,
+    book_id: i64,
+    annotation_type: &str,
+    page_index: Option<i32>,
+    selected_text: Option<&str>,
+    note_comment: Option<&str>,
+    color_hex: &str,
+) -> Result<AnnotationView> {
+    let ann_uuid = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        r#"
+        INSERT INTO annotations (uuid, book_id, annotation_type, page_index, selected_text, note_comment, color_hex)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        "#,
+        params![ann_uuid, book_id, annotation_type, page_index, selected_text, note_comment, color_hex],
+    )?;
+
+    let id = conn.last_insert_rowid();
+
+    let mut stmt = conn.prepare("SELECT uuid, created_at FROM annotations WHERE id = ?")?;
+    let (uuid_val, created_at) = stmt.query_row(params![id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+
+    Ok(AnnotationView {
+        id,
+        uuid: uuid_val,
+        book_id,
+        annotation_type: annotation_type.to_string(),
+        page_index,
+        selected_text: selected_text.map(|s| s.to_string()),
+        note_comment: note_comment.map(|s| s.to_string()),
+        color_hex: color_hex.to_string(),
+        created_at,
+    })
+}
+
+pub fn get_annotations_for_book(conn: &Connection, book_id: i64) -> Result<Vec<AnnotationView>> {
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, uuid, book_id, annotation_type, page_index, selected_text, note_comment, color_hex, created_at
+        FROM annotations
+        WHERE book_id = ?
+        ORDER BY id ASC
+        "#
+    )?;
+
+    let rows = stmt.query_map(params![book_id], |row| {
+        Ok(AnnotationView {
+            id: row.get(0)?,
+            uuid: row.get(1)?,
+            book_id: row.get(2)?,
+            annotation_type: row.get(3)?,
+            page_index: row.get(4)?,
+            selected_text: row.get(5)?,
+            note_comment: row.get(6)?,
+            color_hex: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?;
+
+    let mut result = Vec::new();
+    for r in rows {
+        result.push(r?);
+    }
+    Ok(result)
+}
+
+pub fn delete_annotation(conn: &Connection, annotation_id: i64) -> Result<()> {
+    conn.execute("DELETE FROM annotations WHERE id = ?", params![annotation_id])?;
+    Ok(())
+}
+
+pub fn export_catalog_as_json(conn: &Connection) -> Result<String> {
+    let books = get_all_books(conn)?;
+    serde_json::to_string_pretty(&books).map_err(|_| rusqlite::Error::InvalidQuery)
+}
+
+pub fn export_catalog_as_csv(conn: &Connection) -> Result<String> {
+    let books = get_all_books(conn)?;
+    let mut csv = String::from("ID,UUID,Title,Authors,Series,SeriesIndex,Format,FileSize,PageCount,Publisher,Year,ISBN,Tags\n");
+
+    for b in books {
+        let authors = b.authors.join("; ").replace('"', "\"\"");
+        let tags = b.tags.join("; ").replace('"', "\"\"");
+        let title = b.title.replace('"', "\"\"");
+        let series = b.series.unwrap_or_default().replace('"', "\"\"");
+        let publisher = b.publisher.unwrap_or_default().replace('"', "\"\"");
+        let isbn = b.isbn.unwrap_or_default().replace('"', "\"\"");
+
+        csv.push_str(&format!(
+            "{},\"{}\",\"{}\",\"{}\",\"{}\",{},{},{},{},\"{}\",{},\"{}\",\"{}\"\n",
+            b.id,
+            b.uuid,
+            title,
+            authors,
+            series,
+            b.series_index.unwrap_or(0.0),
+            b.file_format,
+            b.file_size_bytes,
+            b.page_count,
+            publisher,
+            b.publication_year.unwrap_or(0),
+            isbn,
+            tags
+        ));
+    }
+
+    Ok(csv)
+}
+

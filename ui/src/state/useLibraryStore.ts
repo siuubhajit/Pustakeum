@@ -26,6 +26,18 @@ export interface BookView {
   cover_image_path?: string;
 }
 
+export interface AnnotationView {
+  id: number;
+  uuid: string;
+  book_id: number;
+  annotation_type: string;
+  page_index?: number;
+  selected_text?: string;
+  note_comment?: string;
+  color_hex: string;
+  created_at: string;
+}
+
 export interface TabItem {
   id: string; // 'library' or `book-${id}`
   title: string;
@@ -60,6 +72,7 @@ export function useLibraryState() {
     zoomLevel: 100,
   });
   const [isEditingMetadata, setIsEditingMetadata] = useState(false);
+  const [bookToConvert, setBookToConvert] = useState<BookView | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Load books on init
@@ -127,8 +140,9 @@ export function useLibraryState() {
     setReaderSettings,
     isEditingMetadata,
     setIsEditingMetadata,
+    bookToConvert,
+    setBookToConvert,
     refreshBooks,
     loading,
   };
 }
-

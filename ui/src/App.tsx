@@ -4,6 +4,7 @@ import { Titlebar } from "./components/common/Titlebar";
 import { LibraryView } from "./components/library/LibraryView";
 import { ReaderView } from "./components/reader/ReaderView";
 import { MetadataModal } from "./components/editor/MetadataModal";
+import { ConvertModal } from "./components/editor/ConvertModal";
 import { useLibraryState, BookView } from "./state/useLibraryStore";
 
 export const App: React.FC = () => {
@@ -27,13 +28,66 @@ export const App: React.FC = () => {
     setReaderSettings,
     isEditingMetadata,
     setIsEditingMetadata,
+    bookToConvert,
+    setBookToConvert,
     refreshBooks,
   } = useLibraryState();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
+  // Native Multi-File Picker Dialog
+  const handlePickFiles = async () => {
+    try {
+      const paths: string[] = await invoke("pick_files_dialog");
+      if (paths && paths.length > 0) {
+        for (const filePath of paths) {
+          try {
+            const imported: BookView = await invoke("import_book_file", { filePath });
+            setBooks((prev) => [imported, ...prev.filter((b) => b.id !== imported.id)]);
+            setSelectedBookId(imported.id);
+          } catch (err) {
+            console.warn("Error importing file:", filePath, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("File picker error:", err);
+    }
+  };
+
+  // Native Recursive Directory Picker Dialog
+  const handlePickFolder = async () => {
+    try {
+      const dirPath: string | null = await invoke("pick_directory_dialog");
+      if (dirPath) {
+        const count: number = await invoke("import_directory_recursive", { dirPath });
+        console.log(`Imported ${count} books from directory:`, dirPath);
+        await refreshBooks();
+      }
+    } catch (err) {
+      console.warn("Directory picker error:", err);
+    }
+  };
+
+  // Catalog Export (JSON / CSV)
+  const handleExportCatalog = async (format: "json" | "csv") => {
+    try {
+      const savedPath: string = await invoke("export_library_catalog", { format });
+      console.log(`Catalog exported successfully to: ${savedPath}`);
+    } catch (err) {
+      if (err !== "Export cancelled") {
+        console.warn("Catalog export error:", err);
+      }
+    }
+  };
+
+  // Native Reveal in Explorer
+  const handleRevealInExplorer = async (filePath: string) => {
+    try {
+      await invoke("reveal_in_explorer", { filePath });
+    } catch (err) {
+      console.warn("Reveal in explorer error:", err);
+    }
   };
 
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,7 +96,6 @@ export const App: React.FC = () => {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      // On webview/Tauri desktop, file path or name is available
       const filePath = (file as any).path || file.name;
       try {
         const imported: BookView = await invoke("import_book_file", { filePath });
@@ -52,7 +105,6 @@ export const App: React.FC = () => {
         console.warn("Import error:", err);
       }
     }
-    // reset input
     e.target.value = "";
   };
 
@@ -74,7 +126,6 @@ export const App: React.FC = () => {
         currentCfi: null,
         progressPercentage: pct,
       });
-      // update local state
       setBooks((prev) =>
         prev.map((b) =>
           b.id === bookId
@@ -113,7 +164,7 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Hidden file picker */}
+      {/* Hidden fallback file picker */}
       <input
         ref={fileInputRef}
         type="file"
@@ -131,7 +182,9 @@ export const App: React.FC = () => {
         onCloseTab={closeTab}
         theme={theme}
         onToggleTheme={toggleTheme}
-        onImportBook={handleImportClick}
+        onPickFiles={handlePickFiles}
+        onPickFolder={handlePickFolder}
+        onExportCatalog={handleExportCatalog}
       />
 
       {/* Main Workspace Stage */}
@@ -148,6 +201,8 @@ export const App: React.FC = () => {
             onSearchChange={handleSearchChange}
             selectedShelf={selectedShelf}
             onSelectShelf={setSelectedShelf}
+            onRevealInExplorer={handleRevealInExplorer}
+            onConvertBook={(book) => setBookToConvert(book)}
           />
         ) : activeTab?.bookId ? (
           <ReaderView
@@ -166,6 +221,14 @@ export const App: React.FC = () => {
           book={activeBookToEdit}
           onClose={() => setIsEditingMetadata(false)}
           onSave={handleSaveMetadata}
+        />
+      )}
+
+      {/* AST Document Conversion Modal */}
+      {bookToConvert && (
+        <ConvertModal
+          book={bookToConvert}
+          onClose={() => setBookToConvert(null)}
         />
       )}
     </div>

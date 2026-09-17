@@ -217,7 +217,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_library_books,
             commands::search_books,
+            commands::pick_files_dialog,
+            commands::pick_directory_dialog,
             commands::import_book_file,
+            commands::import_directory_recursive,
+            commands::reveal_in_explorer,
             commands::update_book_metadata,
             commands::delete_book,
             commands::get_library_stats,
@@ -225,6 +229,11 @@ pub fn run() {
             commands::get_cbz_page,
             commands::update_reading_progress,
             commands::search_in_book,
+            commands::create_annotation,
+            commands::get_book_annotations,
+            commands::delete_annotation,
+            commands::convert_book_format,
+            commands::export_library_catalog,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Pustakeum application");

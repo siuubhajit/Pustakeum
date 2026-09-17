@@ -78,6 +78,35 @@ mod tests {
         let fts_results = queries::search_books_fts(&conn, "Vedanta").expect("FTS search failed");
         assert_eq!(fts_results.len(), 1);
         assert_eq!(fts_results[0].title, "The Upanishads");
+
+        // Test Annotation creation & retrieval
+        let ann = queries::insert_annotation(
+            &conn,
+            id,
+            "HIGHLIGHT",
+            Some(1),
+            Some("Tat Tvam Asi"),
+            Some("Essential Mahavakya"),
+            "#E5A93C",
+        ).expect("Failed to insert annotation");
+
+        assert_eq!(ann.book_id, id);
+        assert_eq!(ann.selected_text.as_deref(), Some("Tat Tvam Asi"));
+
+        let annotations = queries::get_annotations_for_book(&conn, id).expect("Failed to get annotations");
+        assert_eq!(annotations.len(), 1);
+
+        // Test Export
+        let json_export = queries::export_catalog_as_json(&conn).expect("JSON export failed");
+        assert!(json_export.contains("The Upanishads"));
+
+        let csv_export = queries::export_catalog_as_csv(&conn).expect("CSV export failed");
+        assert!(csv_export.contains("The Upanishads"));
+
+        // Test delete annotation
+        queries::delete_annotation(&conn, ann.id).expect("Delete annotation failed");
+        let remaining = queries::get_annotations_for_book(&conn, id).expect("Failed to query annotations");
+        assert_eq!(remaining.len(), 0);
     }
 }
 

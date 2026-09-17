@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { X, Trash2, Bookmark, ChevronRight } from "lucide-react";
 import { ReaderHud } from "./ReaderHud";
 import { SearchOverlay, SearchMatch } from "./SearchOverlay";
-import { ReaderSettings, BookView } from "../../state/useLibraryStore";
+import { ReaderSettings, BookView, AnnotationView } from "../../state/useLibraryStore";
 
 interface ReaderViewProps {
   bookId: number;
@@ -39,10 +40,21 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isTocOpen, setIsTocOpen] = useState(false);
+  const [isAnnotationsOpen, setIsAnnotationsOpen] = useState(false);
+  const [annotations, setAnnotations] = useState<AnnotationView[]>([]);
   const [plainText, setPlainText] = useState<string | null>(null);
+
+  // Floating text selection popover state
+  const [selectionRange, setSelectionRange] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Load Book Content and Annotations
   useEffect(() => {
     let isMounted = true;
 
@@ -55,12 +67,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           setContent(res);
           setCurrentPage(res.book.current_page || 1);
 
-          // If text document, load file content directly or via chapter
           if (res.book.file_format === "TXT") {
-            try {
-              // Read fallback or preview text
-              setPlainText(res.book.description || "Reading document...");
-            } catch (_) {}
+            setPlainText(res.book.description || "Reading document...");
           }
         }
       } catch (err: any) {
@@ -72,11 +80,89 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       }
     }
 
+    async function loadAnnotations() {
+      try {
+        const anns: AnnotationView[] = await invoke("get_book_annotations", { bookId });
+        if (isMounted) setAnnotations(anns);
+      } catch (err) {
+        console.warn("Failed to load annotations:", err);
+      }
+    }
+
     loadBook();
+    loadAnnotations();
     return () => {
       isMounted = false;
     };
   }, [bookId]);
+
+  // Handle Text Selection for Highlighting & Annotating
+  const handleMouseUp = () => {
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim().length > 0) {
+      const text = sel.toString().trim();
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+
+      setSelectionRange({
+        text,
+        x: rect.left + rect.width / 2,
+        y: Math.max(50, rect.top - 40),
+      });
+    } else {
+      setSelectionRange(null);
+    }
+  };
+
+  const handleCreateHighlight = async (colorHex: string) => {
+    if (!selectionRange) return;
+    try {
+      const newAnn: AnnotationView = await invoke("create_annotation", {
+        bookId,
+        annotationType: "HIGHLIGHT",
+        pageIndex: currentPage,
+        selectedText: selectionRange.text,
+        noteComment: null,
+        colorHex,
+      });
+      setAnnotations((prev) => [...prev, newAnn]);
+      window.getSelection()?.removeAllRanges();
+      setSelectionRange(null);
+    } catch (err) {
+      console.warn("Create highlight error:", err);
+    }
+  };
+
+  const handleCreateNote = async () => {
+    if (!selectionRange) return;
+    const comment = prompt("Enter margin note for selection:", "");
+    if (comment === null) return;
+
+    try {
+      const newAnn: AnnotationView = await invoke("create_annotation", {
+        bookId,
+        annotationType: "NOTE",
+        pageIndex: currentPage,
+        selectedText: selectionRange.text,
+        noteComment: comment.trim() || null,
+        colorHex: "#E5A93C",
+      });
+      setAnnotations((prev) => [...prev, newAnn]);
+      window.getSelection()?.removeAllRanges();
+      setSelectionRange(null);
+    } catch (err) {
+      console.warn("Create note error:", err);
+    }
+  };
+
+  const handleDeleteAnnotation = async (annId: number) => {
+    try {
+      await invoke("delete_annotation", { annotationId: annId });
+      setAnnotations((prev) => prev.filter((a) => a.id !== annId));
+    } catch (err) {
+      console.warn("Delete annotation error:", err);
+    }
+  };
 
   // Keyboard navigation
   useEffect(() => {
@@ -106,6 +192,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         onUpdateSettings({ zoomLevel: 100 });
       } else if (e.key === "Escape") {
         setIsSearchOpen(false);
+        setIsTocOpen(false);
+        setIsAnnotationsOpen(false);
+        setSelectionRange(null);
       }
     };
 
@@ -128,7 +217,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   };
 
   const handleSelectMatch = (match: SearchMatch) => {
-    // Jump to the section or scroll to match
     const targetEl = document.getElementById(`section-${match.section_index}`);
     if (targetEl) {
       targetEl.scrollIntoView({ behavior: "smooth" });
@@ -136,7 +224,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     setIsSearchOpen(false);
   };
 
-  // Determine paper background and font family
   const getPaperBg = () => {
     if (settings.paperMode === "parchment") return "var(--pk-reader-paper)";
     if (settings.paperMode === "dark") return "var(--pk-bg-base)";
@@ -189,6 +276,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       ref={containerRef}
       className="pk-reader-viewport"
       onScroll={handleScroll}
+      onMouseUp={handleMouseUp}
       style={{
         backgroundColor: getPaperBg(),
         color: getTextColor(),
@@ -209,14 +297,244 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         onUpdateSettings={onUpdateSettings}
         onToggleSearch={() => setIsSearchOpen(!isSearchOpen)}
         isSearchOpen={isSearchOpen}
+        onToggleToc={() => {
+          setIsTocOpen(!isTocOpen);
+          setIsAnnotationsOpen(false);
+        }}
+        isTocOpen={isTocOpen}
+        onToggleAnnotations={() => {
+          setIsAnnotationsOpen(!isAnnotationsOpen);
+          setIsTocOpen(false);
+        }}
+        isAnnotationsOpen={isAnnotationsOpen}
       />
 
+      {/* Floating Highlight / Annotation Popover */}
+      {selectionRange && (
+        <div
+          style={{
+            position: "fixed",
+            left: `${selectionRange.x}px`,
+            top: `${selectionRange.y}px`,
+            transform: "translate(-50%, -100%)",
+            backgroundColor: "var(--pk-bg-surface)",
+            border: "1px solid var(--pk-border-default)",
+            borderRadius: "var(--pk-radius-md)",
+            boxShadow: "var(--pk-shadow-lg)",
+            padding: "4px 8px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            zIndex: 110,
+          }}
+        >
+          {/* Yellow Highlight */}
+          <button
+            onClick={() => handleCreateHighlight("#E5A93C")}
+            title="Highlight in Gold"
+            style={{
+              width: "18px",
+              height: "18px",
+              borderRadius: "50%",
+              backgroundColor: "#E5A93C",
+              border: "1px solid rgba(0,0,0,0.2)",
+              cursor: "pointer",
+            }}
+          />
+          {/* Terracotta Highlight */}
+          <button
+            onClick={() => handleCreateHighlight("#A13D22")}
+            title="Highlight in Terracotta"
+            style={{
+              width: "18px",
+              height: "18px",
+              borderRadius: "50%",
+              backgroundColor: "#A13D22",
+              border: "1px solid rgba(0,0,0,0.2)",
+              cursor: "pointer",
+            }}
+          />
+          {/* Jade Highlight */}
+          <button
+            onClick={() => handleCreateHighlight("#10B981")}
+            title="Highlight in Jade"
+            style={{
+              width: "18px",
+              height: "18px",
+              borderRadius: "50%",
+              backgroundColor: "#10B981",
+              border: "1px solid rgba(0,0,0,0.2)",
+              cursor: "pointer",
+            }}
+          />
+          <div style={{ width: "1px", height: "14px", background: "var(--pk-border-default)", margin: "0 2px" }} />
+          <button
+            className="pk-btn"
+            style={{ padding: "2px 6px", fontSize: "11px" }}
+            onClick={handleCreateNote}
+          >
+            Add Note
+          </button>
+        </div>
+      )}
+
+      {/* In-Book Search Overlay */}
       {isSearchOpen && (
         <SearchOverlay
           bookId={bookId}
           onClose={() => setIsSearchOpen(false)}
           onSelectMatch={handleSelectMatch}
         />
+      )}
+
+      {/* Table of Contents Drawer */}
+      {isTocOpen && (
+        <div
+          style={{
+            position: "fixed",
+            left: 0,
+            top: "38px",
+            bottom: 0,
+            width: "300px",
+            backgroundColor: "var(--pk-bg-surface)",
+            borderRight: "1px solid var(--pk-border-default)",
+            boxShadow: "var(--pk-shadow-lg)",
+            zIndex: 90,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--pk-border-subtle)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <h4 style={{ fontSize: "14px", fontWeight: 700 }}>Table of Contents</h4>
+            <button className="pk-btn-icon" onClick={() => setIsTocOpen(false)}>
+              <X size={15} />
+            </button>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+            {content.epub_data?.chapters.map((ch, idx) => (
+              <div
+                key={ch.id}
+                className="pk-shelf-item"
+                style={{ padding: "8px 16px" }}
+                onClick={() => {
+                  const targetEl = document.getElementById(`section-${idx}`);
+                  if (targetEl) targetEl.scrollIntoView({ behavior: "smooth" });
+                  setIsTocOpen(false);
+                }}
+              >
+                <span style={{ fontSize: "13px" }}>{ch.title}</span>
+                <ChevronRight size={13} style={{ opacity: 0.5 }} />
+              </div>
+            ))}
+            {(!content.epub_data || content.epub_data.chapters.length === 0) && (
+              <div style={{ padding: "24px 16px", color: "var(--pk-text-muted)", fontSize: "13px" }}>
+                Single-section document.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Annotations & Notes Drawer */}
+      {isAnnotationsOpen && (
+        <div
+          style={{
+            position: "fixed",
+            right: 0,
+            top: "38px",
+            bottom: 0,
+            width: "340px",
+            backgroundColor: "var(--pk-bg-surface)",
+            borderLeft: "1px solid var(--pk-border-default)",
+            boxShadow: "var(--pk-shadow-lg)",
+            zIndex: 90,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--pk-border-subtle)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <Bookmark size={15} style={{ color: "var(--pk-accent-primary)" }} />
+              <h4 style={{ fontSize: "14px", fontWeight: 700 }}>Annotations ({annotations.length})</h4>
+            </div>
+            <button className="pk-btn-icon" onClick={() => setIsAnnotationsOpen(false)}>
+              <X size={15} />
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            {annotations.map((ann) => (
+              <div
+                key={ann.id}
+                style={{
+                  padding: "10px",
+                  borderRadius: "var(--pk-radius-sm)",
+                  background: "var(--pk-bg-elevated)",
+                  borderLeft: `4px solid ${ann.color_hex}`,
+                  position: "relative",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--pk-text-muted)" }}>
+                    Page {ann.page_index || 1} • {ann.annotation_type}
+                  </span>
+                  <button
+                    className="pk-btn-icon"
+                    style={{ padding: "2px" }}
+                    onClick={() => handleDeleteAnnotation(ann.id)}
+                    title="Delete Annotation"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+
+                {ann.selected_text && (
+                  <blockquote
+                    style={{
+                      fontSize: "12px",
+                      fontStyle: "italic",
+                      color: "var(--pk-text-primary)",
+                      marginBottom: "4px",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    "{ann.selected_text}"
+                  </blockquote>
+                )}
+
+                {ann.note_comment && (
+                  <p style={{ fontSize: "12px", color: "var(--pk-text-secondary)", lineHeight: 1.4 }}>
+                    {ann.note_comment}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {annotations.length === 0 && (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: "var(--pk-text-muted)", fontSize: "13px" }}>
+                Select text in the reader to create highlights and margin notes.
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Reader Document Body */}
@@ -261,12 +579,10 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             ))}
           </div>
         ) : content.book.file_format === "TXT" ? (
-          /* Plain Text Classical Reading Mode */
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.8 }}>
             {plainText}
           </div>
         ) : (
-          /* PDF / Generic Document Viewport */
           <div style={{ textAlign: "center", padding: "48px 0" }}>
             <div
               style={{
@@ -293,4 +609,3 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     </div>
   );
 };
-
