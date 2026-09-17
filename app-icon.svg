@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2005/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#151D2C"/>
+      <stop offset="100%" stop-color="#0A0D13"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="50%" stop-color="#E5A93C"/>
+      <stop offset="100%" stop-color="#B48228"/>
+    </linearGradient>
+    <linearGradient id="terracotta" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C2410C"/>
+      <stop offset="100%" stop-color="#A13D22"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Base Rounded Container -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="url(#gold)" stroke-width="6" opacity="0.4"/>
+
+  <!-- Sanskrit Manuscript Pages / Book Icon -->
+  <g transform="translate(64, 80)">
+    <!-- Back Page -->
+    <path d="M 40 80 Q 192 120 344 80 L 344 320 Q 192 360 40 320 Z" fill="#243048" opacity="0.7"/>
+    <!-- Left Page -->
+    <path d="M 48 70 Q 192 105 192 105 L 192 345 Q 48 310 48 70 Z" fill="#F4EFE6"/>
+    <!-- Right Page -->
+    <path d="M 192 105 Q 336 70 336 70 L 336 310 Q 192 345 192 345 Z" fill="#FFFDF9"/>
+    <!-- Center Spine -->
+    <line x1="192" y1="105" x2="192" y2="345" stroke="url(#terracotta)" stroke-width="8"/>
+    
+    <!-- Sanskrit Letter / Manuscript glyph 'पु' -->
+    <text x="192" y="245" font-family="'Spectral', 'Georgia', serif" font-size="110" font-weight="bold" fill="url(#terracotta)" text-anchor="middle" dominant-baseline="central">
+      पु
+    </text>
+
+    <!-- Golden Reading Ribbon Bookmark -->
+    <path d="M 192 105 L 192 375 L 176 355 L 160 375 L 160 105 Z" fill="url(#gold)"/>
+  </g>
+</svg>
+
