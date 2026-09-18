@@ -96,7 +96,7 @@ pub fn emit_ast_to_markdown<P: AsRef<Path>>(ast: &DocumentAst, output_path: P) -
 
     writeln!(file, "# {}\n", ast.metadata.title).map_err(|e| e.to_string())?;
     if !ast.metadata.authors.is_empty() {
-        writeln!(file, "*{}\n*", ast.metadata.authors.join(", ")).map_err(|e| e.to_string())?;
+        writeln!(file, "*{}*\n", ast.metadata.authors.join(", ")).map_err(|e| e.to_string())?;
     }
 
     for section in &ast.sections {
@@ -189,7 +189,7 @@ pub fn convert_book_document<P: AsRef<Path>, Q: AsRef<Path>>(
 
     let ast = match ext.as_str() {
         "EPUB" => parse_epub_to_ast(s_path)?,
-        "TXT" => parse_text_to_ast(s_path)?,
+        "TXT" | "MD" | "MARKDOWN" => parse_text_to_ast(s_path)?,
         _ => return Err(format!("Direct AST conversion not yet supported for format .{}", ext)),
     };
 

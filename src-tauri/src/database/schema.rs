@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS books (
     sort_title TEXT NOT NULL,
     file_path TEXT NOT NULL,
     file_size_bytes INTEGER NOT NULL,
-    file_format TEXT NOT NULL CHECK(file_format IN ('PDF', 'EPUB', 'CBZ', 'CBR', 'MOBI', 'AZW3', 'TXT')),
+    file_format TEXT NOT NULL CHECK(file_format IN ('PDF', 'EPUB', 'CBZ', 'CBR', 'MOBI', 'AZW3', 'TXT', 'MD', 'MARKDOWN')),
     page_count INTEGER DEFAULT 0,
     publisher TEXT,
     publication_year INTEGER,

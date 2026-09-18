@@ -1,13 +1,20 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Titlebar } from "./components/common/Titlebar";
 import { LibraryView } from "./components/library/LibraryView";
 import { ReaderView } from "./components/reader/ReaderView";
 import { MetadataModal } from "./components/editor/MetadataModal";
 import { ConvertModal } from "./components/editor/ConvertModal";
+import { EpubCodeEditor } from "./components/editor/EpubCodeEditor";
+import { DeviceManagerModal } from "./components/hardware/DeviceManagerModal";
+import { AnkiModal } from "./components/reader/AnkiModal";
 import { useLibraryState, BookView } from "./state/useLibraryStore";
 
 export const App: React.FC = () => {
+  const [epubToEdit, setEpubToEdit] = useState<BookView | null>(null);
+  const [isDeviceManagerOpen, setIsDeviceManagerOpen] = useState(false);
+  const [ankiCardData, setAnkiCardData] = useState<{ text: string; title: string; page?: number } | null>(null);
+
   const {
     books,
     setBooks,
@@ -24,6 +31,8 @@ export const App: React.FC = () => {
     setSelectedShelf,
     theme,
     toggleTheme,
+    libraryViewMode,
+    changeLibraryViewMode,
     readerSettings,
     setReaderSettings,
     isEditingMetadata,
@@ -60,8 +69,8 @@ export const App: React.FC = () => {
     try {
       const dirPath: string | null = await invoke("pick_directory_dialog");
       if (dirPath) {
-        const count: number = await invoke("import_directory_recursive", { dirPath });
-        console.log(`Imported ${count} books from directory:`, dirPath);
+        const imported: BookView[] = await invoke("import_directory_recursive", { dirPath });
+        console.log(`Imported ${imported.length} books from directory:`, dirPath);
         await refreshBooks();
       }
     } catch (err) {
@@ -185,6 +194,7 @@ export const App: React.FC = () => {
         onPickFiles={handlePickFiles}
         onPickFolder={handlePickFolder}
         onExportCatalog={handleExportCatalog}
+        onOpenDeviceManager={() => setIsDeviceManagerOpen(true)}
       />
 
       {/* Main Workspace Stage */}
@@ -203,13 +213,16 @@ export const App: React.FC = () => {
             onSelectShelf={setSelectedShelf}
             onRevealInExplorer={handleRevealInExplorer}
             onConvertBook={(book) => setBookToConvert(book)}
+            onOpenEpubEditor={(book) => setEpubToEdit(book)}
+            viewMode={libraryViewMode}
+            onViewModeChange={changeLibraryViewMode}
           />
         ) : activeTab?.bookId ? (
           <ReaderView
             key={activeTab.bookId}
             bookId={activeTab.bookId}
             settings={readerSettings}
-            onUpdateSettings={(s) => setReaderSettings((prev) => ({ ...prev, ...s }))}
+            onUpdateSettings={(s) => setReaderSettings(s)}
             onUpdateProgress={handleUpdateProgress}
           />
         ) : null}
@@ -229,6 +242,33 @@ export const App: React.FC = () => {
         <ConvertModal
           book={bookToConvert}
           onClose={() => setBookToConvert(null)}
+        />
+      )}
+
+      {/* Live Split-Pane EPUB Code Editor */}
+      {epubToEdit && (
+        <EpubCodeEditor
+          filePath={epubToEdit.file_path}
+          bookTitle={epubToEdit.title}
+          onClose={() => setEpubToEdit(null)}
+        />
+      )}
+
+      {/* USB / MTP E-Reader Hardware Manager Modal */}
+      {isDeviceManagerOpen && (
+        <DeviceManagerModal
+          books={books}
+          onClose={() => setIsDeviceManagerOpen(false)}
+        />
+      )}
+
+      {/* Anki Flashcard Sync Modal */}
+      {ankiCardData && (
+        <AnkiModal
+          initialText={ankiCardData.text}
+          sourceTitle={ankiCardData.title}
+          pageNumber={ankiCardData.page}
+          onClose={() => setAnkiCardData(null)}
         />
       )}
     </div>

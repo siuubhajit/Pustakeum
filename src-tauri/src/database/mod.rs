@@ -57,10 +57,10 @@ mod tests {
             1024,
             "EPUB",
             10,
-            &vec!["Ancient Rsis".to_string()],
+            &["Ancient Rsis".to_string()],
             Some("Sacred Manuscripts"),
             Some(1.0),
-            &vec!["Philosophy".to_string(), "Vedanta".to_string()],
+            &["Philosophy".to_string(), "Vedanta".to_string()],
             Some("Pustakeum Press"),
             Some(1900),
             Some("Essential Vedic dialogues"),
@@ -107,6 +107,17 @@ mod tests {
         queries::delete_annotation(&conn, ann.id).expect("Delete annotation failed");
         let remaining = queries::get_annotations_for_book(&conn, id).expect("Failed to query annotations");
         assert_eq!(remaining.len(), 0);
+
+        // Test FTS query sanitization on punctuation and operators
+        assert_eq!(queries::sanitize_fts5_query("Harry Potter (Book 1)"), "\"Harry\"* \"Potter\"* \"Book\"* \"1\"*");
+        assert_eq!(queries::sanitize_fts5_query("rust-lang"), "\"rust\"* \"lang\"*");
+        assert_eq!(queries::sanitize_fts5_query("---***+++"), "");
+        assert_eq!(queries::sanitize_fts5_query(""), "");
+
+        // Verify that searching with special characters returns results safely without crashing
+        let special_results = queries::search_books_fts(&conn, "Upanishads (Sacred)*").expect("FTS search failed on special chars");
+        assert_eq!(special_results.len(), 1);
+        assert_eq!(special_results[0].title, "The Upanishads");
     }
 }
 

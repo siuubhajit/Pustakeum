@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Trash2, Bookmark, ChevronRight } from "lucide-react";
+import { X, Trash2, Bookmark, ChevronRight, List } from "lucide-react";
 import { ReaderHud } from "./ReaderHud";
 import { SearchOverlay, SearchMatch } from "./SearchOverlay";
+import { PdfRenderer, PdfTocItem } from "./PdfRenderer";
+import { ComicRenderer } from "./ComicRenderer";
+import { TxtRenderer } from "./TxtRenderer";
 import { ReaderSettings, BookView, AnnotationView } from "../../state/useLibraryStore";
 
 interface ReaderViewProps {
@@ -29,6 +32,13 @@ interface OpenBookContentResponse {
   };
 }
 
+export interface UnifiedTocItem {
+  id: string;
+  title: string;
+  pageNumber?: number;
+  sectionId?: string;
+}
+
 export const ReaderView: React.FC<ReaderViewProps> = ({
   bookId,
   settings,
@@ -39,17 +49,19 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [overrideTotalPages, setOverrideTotalPages] = useState<number | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isTocOpen, setIsTocOpen] = useState(false);
   const [isAnnotationsOpen, setIsAnnotationsOpen] = useState(false);
   const [annotations, setAnnotations] = useState<AnnotationView[]>([]);
-  const [plainText, setPlainText] = useState<string | null>(null);
+  const [tocList, setTocList] = useState<UnifiedTocItem[]>([]);
 
   // Floating text selection popover state
   const [selectionRange, setSelectionRange] = useState<{
     text: string;
     x: number;
     y: number;
+    pageIndex?: number;
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,8 +79,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           setContent(res);
           setCurrentPage(res.book.current_page || 1);
 
-          if (res.book.file_format === "TXT") {
-            setPlainText(res.book.description || "Reading document...");
+          // Populate EPUB TOC if available
+          if (res.epub_data && res.epub_data.chapters.length > 0) {
+            setTocList(
+              res.epub_data.chapters.map((ch, idx) => ({
+                id: `epub-ch-${idx}`,
+                title: ch.title,
+                sectionId: `section-${idx}`,
+              }))
+            );
           }
         }
       } catch (err: any) {
@@ -96,6 +115,19 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     };
   }, [bookId]);
 
+  const totalPages = overrideTotalPages || content?.book.page_count || 1;
+
+  // Handle page change from HUD or keyboard
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      const validPage = Math.max(1, Math.min(totalPages, newPage));
+      setCurrentPage(validPage);
+      const pct = (validPage / totalPages) * 100;
+      onUpdateProgress(bookId, validPage, pct);
+    },
+    [bookId, totalPages, onUpdateProgress]
+  );
+
   // Handle Text Selection for Highlighting & Annotating
   const handleMouseUp = () => {
     const sel = window.getSelection();
@@ -104,10 +136,23 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
 
+      // Accurately determine page number from nearest ancestor
+      let selectedPage = currentPage;
+      const commonNode = range.commonAncestorContainer;
+      const el = commonNode instanceof HTMLElement ? commonNode : commonNode.parentElement;
+      const pageWrapper = el?.closest("[data-page-number]");
+      if (pageWrapper) {
+        const pNum = Number(pageWrapper.getAttribute("data-page-number"));
+        if (!isNaN(pNum) && pNum > 0) {
+          selectedPage = pNum;
+        }
+      }
+
       setSelectionRange({
         text,
         x: rect.left + rect.width / 2,
         y: Math.max(50, rect.top - 40),
+        pageIndex: selectedPage,
       });
     } else {
       setSelectionRange(null);
@@ -117,10 +162,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const handleCreateHighlight = async (colorHex: string) => {
     if (!selectionRange) return;
     try {
+      const targetPage = selectionRange.pageIndex || currentPage;
       const newAnn: AnnotationView = await invoke("create_annotation", {
         bookId,
         annotationType: "HIGHLIGHT",
-        pageIndex: currentPage,
+        pageIndex: targetPage,
         selectedText: selectionRange.text,
         noteComment: null,
         colorHex,
@@ -139,10 +185,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     if (comment === null) return;
 
     try {
+      const targetPage = selectionRange.pageIndex || currentPage;
       const newAnn: AnnotationView = await invoke("create_annotation", {
         bookId,
         annotationType: "NOTE",
-        pageIndex: currentPage,
+        pageIndex: targetPage,
         selectedText: selectionRange.text,
         noteComment: comment.trim() || null,
         colorHex: "#E5A93C",
@@ -175,15 +222,31 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         e.preventDefault();
         setIsSearchOpen((prev) => !prev);
       } else if (e.key === "j" || e.key === "ArrowDown") {
-        containerRef.current?.scrollBy({ top: 120, behavior: "smooth" });
+        if (content?.book.file_format === "PDF" || content?.book.file_format === "CBZ") {
+          handlePageChange(currentPage + 1);
+        } else {
+          containerRef.current?.scrollBy({ top: 120, behavior: "smooth" });
+        }
       } else if (e.key === "k" || e.key === "ArrowUp") {
-        containerRef.current?.scrollBy({ top: -120, behavior: "smooth" });
+        if (content?.book.file_format === "PDF" || content?.book.file_format === "CBZ") {
+          handlePageChange(currentPage - 1);
+        } else {
+          containerRef.current?.scrollBy({ top: -120, behavior: "smooth" });
+        }
       } else if (e.key === " " && !e.shiftKey) {
         e.preventDefault();
-        containerRef.current?.scrollBy({ top: window.innerHeight * 0.8, behavior: "smooth" });
+        if (content?.book.file_format === "PDF" || content?.book.file_format === "CBZ") {
+          handlePageChange(currentPage + 1);
+        } else {
+          containerRef.current?.scrollBy({ top: window.innerHeight * 0.8, behavior: "smooth" });
+        }
       } else if (e.key === " " && e.shiftKey) {
         e.preventDefault();
-        containerRef.current?.scrollBy({ top: -window.innerHeight * 0.8, behavior: "smooth" });
+        if (content?.book.file_format === "PDF" || content?.book.file_format === "CBZ") {
+          handlePageChange(currentPage - 1);
+        } else {
+          containerRef.current?.scrollBy({ top: -window.innerHeight * 0.8, behavior: "smooth" });
+        }
       } else if (e.key === "+" || e.key === "=") {
         onUpdateSettings({ zoomLevel: Math.min(250, settings.zoomLevel + 10) });
       } else if (e.key === "-") {
@@ -200,29 +263,67 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [settings.zoomLevel, onUpdateSettings]);
+  }, [settings.zoomLevel, onUpdateSettings, content, currentPage, handlePageChange]);
 
-  // Track scroll position to update reading progress
+  // Track scroll position for EPUB to update reading progress
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (content?.book.file_format === "PDF" || content?.book.file_format === "CBZ") {
+      // PDF and CBZ manage page updates via their internal intersection observers
+      return;
+    }
     const el = e.currentTarget;
     const maxScroll = el.scrollHeight - el.clientHeight;
     if (maxScroll <= 0) return;
 
     const pct = Math.min(100, Math.max(0, (el.scrollTop / maxScroll) * 100));
-    const totalPages = content?.book.page_count || 1;
     const pageNum = Math.min(totalPages, Math.max(1, Math.round((pct / 100) * totalPages)));
     setCurrentPage(pageNum);
-
     onUpdateProgress(bookId, pageNum, pct);
   };
 
   const handleSelectMatch = (match: SearchMatch) => {
-    const targetEl = document.getElementById(`section-${match.section_index}`);
-    if (targetEl) {
-      targetEl.scrollIntoView({ behavior: "smooth" });
+    if (content?.book.file_format === "PDF" || content?.book.file_format === "CBZ") {
+      handlePageChange(match.section_index);
+    } else {
+      const targetEl = document.getElementById(`section-${match.section_index}`);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: "smooth" });
+      }
     }
     setIsSearchOpen(false);
   };
+
+  const handleTocClick = (item: UnifiedTocItem) => {
+    if (item.pageNumber !== undefined) {
+      handlePageChange(item.pageNumber);
+    } else if (item.sectionId) {
+      const targetEl = document.getElementById(item.sectionId);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+    setIsTocOpen(false);
+  };
+
+  const handlePdfTocLoaded = useCallback((pdfToc: PdfTocItem[]) => {
+    setTocList(
+      pdfToc.map((item, idx) => ({
+        id: `pdf-toc-${idx}`,
+        title: item.title,
+        pageNumber: item.pageNumber,
+      }))
+    );
+  }, []);
+
+  const handleTxtTocLoaded = useCallback((txtToc: { title: string; pageNumber: number }[]) => {
+    setTocList(
+      txtToc.map((item, idx) => ({
+        id: `txt-toc-${idx}`,
+        title: item.title,
+        pageNumber: item.pageNumber,
+      }))
+    );
+  }, []);
 
   const getPaperBg = () => {
     if (settings.paperMode === "parchment") return "var(--pk-reader-paper)";
@@ -269,7 +370,10 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     );
   }
 
-  const totalPages = content.book.page_count || 1;
+  const isGraphicDocument =
+    content.book.file_format === "PDF" ||
+    content.book.file_format === "CBZ" ||
+    content.book.file_format === "CBR";
 
   return (
     <div
@@ -285,14 +389,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       <ReaderHud
         currentPage={currentPage}
         totalPages={totalPages}
-        onPageChange={(p) => {
-          setCurrentPage(p);
-          const el = containerRef.current;
-          if (el) {
-            const maxScroll = el.scrollHeight - el.clientHeight;
-            el.scrollTo({ top: ((p - 1) / totalPages) * maxScroll, behavior: "smooth" });
-          }
-        }}
+        onPageChange={handlePageChange}
         settings={settings}
         onUpdateSettings={onUpdateSettings}
         onToggleSearch={() => setIsSearchOpen(!isSearchOpen)}
@@ -414,30 +511,34 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               justifyContent: "space-between",
             }}
           >
-            <h4 style={{ fontSize: "14px", fontWeight: 700 }}>Table of Contents</h4>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <List size={15} style={{ color: "var(--pk-accent-primary)" }} />
+              <h4 style={{ fontSize: "14px", fontWeight: 700 }}>Table of Contents</h4>
+            </div>
             <button className="pk-btn-icon" onClick={() => setIsTocOpen(false)}>
               <X size={15} />
             </button>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-            {content.epub_data?.chapters.map((ch, idx) => (
+            {tocList.map((item) => (
               <div
-                key={ch.id}
+                key={item.id}
                 className="pk-shelf-item"
-                style={{ padding: "8px 16px" }}
-                onClick={() => {
-                  const targetEl = document.getElementById(`section-${idx}`);
-                  if (targetEl) targetEl.scrollIntoView({ behavior: "smooth" });
-                  setIsTocOpen(false);
-                }}
+                style={{ padding: "8px 16px", cursor: "pointer" }}
+                onClick={() => handleTocClick(item)}
               >
-                <span style={{ fontSize: "13px" }}>{ch.title}</span>
+                <span style={{ fontSize: "13px", flex: 1 }}>{item.title}</span>
+                {item.pageNumber !== undefined && (
+                  <span style={{ fontSize: "11px", color: "var(--pk-text-muted)", marginRight: "4px" }}>
+                    p. {item.pageNumber}
+                  </span>
+                )}
                 <ChevronRight size={13} style={{ opacity: 0.5 }} />
               </div>
             ))}
-            {(!content.epub_data || content.epub_data.chapters.length === 0) && (
+            {tocList.length === 0 && (
               <div style={{ padding: "24px 16px", color: "var(--pk-text-muted)", fontSize: "13px" }}>
-                Single-section document.
+                No chapter bookmarks found for this document.
               </div>
             )}
           </div>
@@ -542,67 +643,80 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         className="pk-reader-content"
         style={{
           fontFamily: getFontFamily(),
-          fontSize: `${settings.fontSize}px`,
-          transform: `scale(${settings.zoomLevel / 100})`,
-          transformOrigin: "top center",
-          transition: "font-size var(--pk-transition-fast)",
+          maxWidth: isGraphicDocument ? "100%" : "860px",
+          margin: "0 auto",
+          padding: isGraphicDocument ? "16px 0 60px" : "32px 24px 80px",
         }}
       >
-        <div style={{ marginBottom: "3rem", textAlign: "center" }}>
-          <h1
-            style={{
-              fontSize: "2.4em",
-              fontFamily: "var(--pk-font-title)",
-              marginBottom: "0.5rem",
-              lineHeight: 1.2,
-            }}
-          >
-            {content.book.title}
-          </h1>
-          <p style={{ fontSize: "1.1em", opacity: 0.8, fontWeight: 500 }}>
-            {content.book.authors.join(", ") || "Unknown Author"}
-          </p>
-          {content.book.series && (
-            <p style={{ fontSize: "0.9em", color: "var(--pk-accent-secondary)", marginTop: "4px" }}>
-              {content.book.series} #{content.book.series_index || 1}
+        {/* Only show header for text-based books (EPUB / TXT), keep PDF / CBZ clean like Sumatra */}
+        {!isGraphicDocument && (
+          <div style={{ marginBottom: "3rem", textAlign: "center" }}>
+            <h1
+              style={{
+                fontSize: "2.4em",
+                fontFamily: "var(--pk-font-title)",
+                marginBottom: "0.5rem",
+                lineHeight: 1.2,
+              }}
+            >
+              {content.book.title}
+            </h1>
+            <p style={{ fontSize: "1.1em", opacity: 0.8, fontWeight: 500 }}>
+              {content.book.authors.join(", ") || "Unknown Author"}
             </p>
-          )}
-        </div>
+            {content.book.series && (
+              <p style={{ fontSize: "0.9em", color: "var(--pk-accent-secondary)", marginTop: "4px" }}>
+                {content.book.series} #{content.book.series_index || 1}
+              </p>
+            )}
+          </div>
+        )}
 
-        {/* EPUB Document Rendering */}
-        {content.epub_data && content.epub_data.chapters.length > 0 ? (
-          <div>
+        {/* 1. PDF Document Rendering */}
+        {content.book.file_format === "PDF" ? (
+          <PdfRenderer
+            bookId={bookId}
+            currentPage={currentPage}
+            settings={settings}
+            annotations={annotations}
+            onPageChange={handlePageChange}
+            onTotalPagesLoaded={(count) => setOverrideTotalPages(count)}
+            onTocLoaded={handlePdfTocLoaded}
+            onMouseUp={handleMouseUp}
+          />
+        ) : (content.book.file_format === "CBZ" || content.book.file_format === "CBR") && content.comic_data ? (
+          /* 2. CBZ / CBR Comic Book Rendering */
+          <ComicRenderer
+            book={content.book}
+            comicData={content.comic_data}
+            currentPage={currentPage}
+            settings={settings}
+            onPageChange={handlePageChange}
+          />
+        ) : content.book.file_format === "TXT" ||
+          content.book.file_format === "MD" ||
+          content.book.file_format === "MARKDOWN" ? (
+          /* 3. Plain Text / Markdown Document Rendering */
+          <TxtRenderer
+            book={content.book}
+            settings={settings}
+            currentPage={currentPage}
+            onPageChange={handlePageChange}
+            onTocLoaded={handleTxtTocLoaded}
+            onMouseUp={handleMouseUp}
+          />
+        ) : content.epub_data && content.epub_data.chapters.length > 0 ? (
+          /* 4. EPUB Document Rendering */
+          <div style={{ fontSize: `${settings.fontSize}px`, lineHeight: 1.85 }}>
             {content.epub_data.chapters.map((chapter, idx) => (
               <section key={chapter.id} id={`section-${idx}`} style={{ marginBottom: "4rem" }}>
                 <div dangerouslySetInnerHTML={{ __html: chapter.content }} />
               </section>
             ))}
           </div>
-        ) : content.book.file_format === "TXT" ? (
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.8 }}>
-            {plainText}
-          </div>
         ) : (
           <div style={{ textAlign: "center", padding: "48px 0" }}>
-            <div
-              style={{
-                display: "inline-block",
-                padding: "60px 40px",
-                border: "1px solid var(--pk-border-default)",
-                borderRadius: "var(--pk-radius-md)",
-                background: "var(--pk-bg-surface)",
-                maxWidth: "600px",
-                boxShadow: "var(--pk-shadow-md)",
-              }}
-            >
-              <h2 style={{ fontSize: "1.4em", marginBottom: "12px" }}>{content.book.file_format} Document</h2>
-              <p style={{ fontSize: "14px", color: "var(--pk-text-secondary)", marginBottom: "20px" }}>
-                File: {content.book.file_path}
-              </p>
-              <p style={{ fontSize: "13px", lineHeight: 1.6 }}>
-                Native zero-copy rasterization pipeline is active for {content.book.page_count} pages.
-              </p>
-            </div>
+            <p style={{ color: "var(--pk-text-muted)" }}>Unsupported document format.</p>
           </div>
         )}
       </main>

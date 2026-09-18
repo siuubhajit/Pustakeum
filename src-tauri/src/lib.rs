@@ -1,9 +1,16 @@
+pub mod ai;
 pub mod commands;
 pub mod converter;
 pub mod database;
 pub mod engine;
+pub mod fingerprint;
+pub mod hardware;
+pub mod integrations;
+pub mod plugins;
 pub mod search;
 pub mod server;
+pub mod settings;
+pub mod sync;
 
 use database::queries::{self, BookView};
 use database::Database;
@@ -65,10 +72,10 @@ Therefore, without being attached to the fruits of activities, one should act as
             gita_content.len() as i64,
             "TXT",
             3,
-            &vec!["Vyasa".to_string(), "S. Radhakrishnan (Trans.)".to_string()],
+            &["Vyasa".to_string(), "S. Radhakrishnan (Trans.)".to_string()],
             Some("Sacred Manuscripts"),
             Some(1.0),
-            &vec!["Philosophy".to_string(), "Yoga".to_string(), "Classics".to_string()],
+            &["Philosophy".to_string(), "Yoga".to_string(), "Classics".to_string()],
             Some("Pustakeum Classical Press"),
             Some(1948),
             Some("The ancient philosophical dialogue between Prince Arjuna and Lord Krishna on duty, yoga, and ultimate reality on the battlefield of Kurukshetra."),
@@ -101,10 +108,10 @@ The distance of the sun and moon, the calculation of eclipses, and the declinati
             surya_content.len() as i64,
             "TXT",
             2,
-            &vec!["Aryabhata".to_string(), "Ebenezer Burgess (Trans.)".to_string()],
+            &["Aryabhata".to_string(), "Ebenezer Burgess (Trans.)".to_string()],
             Some("Ancient Sciences"),
             Some(1.0),
-            &vec!["Astronomy".to_string(), "Mathematics".to_string(), "History".to_string()],
+            &["Astronomy".to_string(), "Mathematics".to_string(), "History".to_string()],
             Some("Vedic Astronomical Society"),
             Some(1860),
             Some("The quintessential Sanskrit treatise on astronomical calculation, planetary orbits, trigonometry, and solar calendar systems."),
@@ -139,10 +146,10 @@ Forts shall be defended with mechanical catapults, trenches, and watchful scouts
             artha_content.len() as i64,
             "TXT",
             2,
-            &vec!["Kautilya (Chanakya)".to_string(), "R. Shamasastry (Trans.)".to_string()],
+            &["Kautilya (Chanakya)".to_string(), "R. Shamasastry (Trans.)".to_string()],
             Some("Ancient Sciences"),
             Some(2.0),
-            &vec!["Statecraft".to_string(), "Governance".to_string(), "Economics".to_string()],
+            &["Statecraft".to_string(), "Governance".to_string(), "Economics".to_string()],
             Some("Bangalore Oriental Library"),
             Some(1915),
             Some("Master treatise on political science, economics, diplomacy, and administrative jurisprudence composed in the Mauryan Empire."),
@@ -155,33 +162,7 @@ Forts shall be defended with mechanical catapults, trenches, and watchful scouts
 // Helper method for base64 encoding
 impl engine::epub::EpubBook {
     pub fn base64_encode_bytes(data: &[u8]) -> String {
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
-
-        for chunk in data.chunks(3) {
-            let b0 = chunk[0];
-            let b1 = chunk.get(1).copied().unwrap_or(0);
-            let b2 = chunk.get(2).copied().unwrap_or(0);
-
-            let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
-
-            result.push(CHARSET[((n >> 18) & 63) as usize] as char);
-            result.push(CHARSET[((n >> 12) & 63) as usize] as char);
-
-            if chunk.len() > 1 {
-                result.push(CHARSET[((n >> 6) & 63) as usize] as char);
-            } else {
-                result.push('=');
-            }
-
-            if chunk.len() > 2 {
-                result.push(CHARSET[(n & 63) as usize] as char);
-            } else {
-                result.push('=');
-            }
-        }
-
-        result
+        engine::epub::base64_encode(data)
     }
 }
 
@@ -226,6 +207,8 @@ pub fn run() {
             commands::delete_book,
             commands::get_library_stats,
             commands::open_book_content,
+            commands::get_book_binary,
+            commands::get_book_text,
             commands::get_cbz_page,
             commands::update_reading_progress,
             commands::search_in_book,
@@ -234,8 +217,22 @@ pub fn run() {
             commands::delete_annotation,
             commands::convert_book_format,
             commands::export_library_catalog,
+            commands::toggle_window_maximize,
+            commands::is_window_maximized,
+            commands::get_app_settings,
+            commands::save_app_settings,
+            // Advanced Enterprise Subsystems
+            commands::cmd_run_ocr,
+            commands::cmd_query_hybrid_search,
+            commands::cmd_generate_tts_pcm,
+            commands::cmd_save_native_pdf_annotation,
+            commands::cmd_sync_anki_card,
+            commands::cmd_run_wasm_plugin,
+            commands::cmd_validate_epub_archive,
+            commands::cmd_mtp_list_devices,
+            commands::cmd_sync_to_device,
+            commands::cmd_render_page_rgba,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Pustakeum application");
 }
-

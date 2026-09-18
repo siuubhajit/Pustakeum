@@ -1,7 +1,10 @@
 pub mod comics;
 pub mod epub;
+pub mod epub_validator;
 pub mod memory_ring;
 pub mod pdf;
+pub mod pdf_annotator;
+pub mod webgl;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -47,22 +50,43 @@ pub fn inspect_file<P: AsRef<Path>>(path: P) -> Result<DocumentOverview, String>
                 description: meta.subject,
             })
         }
-        "CBZ" => {
+        "CBZ" | "CBR" => {
             let comic = comics::inspect_cbz(p)?;
+            let cover_image_data = if !comic.page_names.is_empty() {
+                comics::extract_cbz_page(p, 0).ok().map(|bytes| {
+                    let first_name = comic.page_names[0].to_lowercase();
+                    let mime = if first_name.ends_with(".png") {
+                        "image/png"
+                    } else if first_name.ends_with(".webp") {
+                        "image/webp"
+                    } else {
+                        "image/jpeg"
+                    };
+                    format!("data:{};base64,{}", mime, epub::base64_encode(&bytes))
+                })
+            } else {
+                None
+            };
+
             Ok(DocumentOverview {
                 title: comic.title,
-                format: "CBZ".to_string(),
+                format: ext,
                 page_count: comic.page_count as i32,
                 authors: Vec::new(),
-                cover_image_data: None,
+                cover_image_data,
                 description: None,
             })
         }
-        "TXT" => {
+        "TXT" | "MD" | "MARKDOWN" => {
             let title = p.file_stem().and_then(|s| s.to_str()).unwrap_or("Text Document").to_string();
+            let format = if ext == "MD" || ext == "MARKDOWN" {
+                "MD".to_string()
+            } else {
+                "TXT".to_string()
+            };
             Ok(DocumentOverview {
                 title,
-                format: "TXT".to_string(),
+                format,
                 page_count: 1,
                 authors: Vec::new(),
                 cover_image_data: None,

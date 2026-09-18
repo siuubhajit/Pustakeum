@@ -1,16 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Sun,
   Moon,
   Plus,
   Minus,
   Square,
+  Copy,
   X,
   FolderPlus,
   FilePlus,
   Download,
   ChevronDown,
+  HardDrive,
 } from "lucide-react";
 import { TabBar } from "./TabBar";
 import { TabItem, ThemeMode } from "../../state/useLibraryStore";
@@ -25,6 +28,7 @@ interface TitlebarProps {
   onPickFiles: () => void;
   onPickFolder: () => void;
   onExportCatalog: (fmt: "json" | "csv") => void;
+  onOpenDeviceManager?: () => void;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
@@ -37,8 +41,46 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   onPickFiles,
   onPickFolder,
   onExportCatalog,
+  onOpenDeviceManager,
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkState() {
+      try {
+        const max: boolean = await invoke("is_window_maximized");
+        if (isMounted) setIsMaximized(max);
+      } catch (_) {
+        try {
+          const max = await getCurrentWindow().isMaximized();
+          if (isMounted) setIsMaximized(max);
+        } catch (_) {}
+      }
+    }
+
+    checkState();
+
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onResized(async () => {
+        try {
+          const m = await getCurrentWindow().isMaximized();
+          if (isMounted) setIsMaximized(m);
+        } catch (_) {}
+      })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const handleMinimize = async () => {
     try {
@@ -48,8 +90,17 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
   const handleMaximize = async () => {
     try {
-      await getCurrentWindow().toggleMaximize();
-    } catch (_) {}
+      const nowMax: boolean = await invoke("toggle_window_maximize");
+      setIsMaximized(nowMax);
+    } catch (_) {
+      try {
+        await getCurrentWindow().toggleMaximize();
+        const m = await getCurrentWindow().isMaximized();
+        setIsMaximized(m);
+      } catch (err) {
+        console.warn("Maximize error:", err);
+      }
+    }
   };
 
   const handleClose = async () => {
@@ -59,7 +110,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   };
 
   return (
-    <header className="pk-titlebar" data-tauri-drag-region>
+    <header className="pk-titlebar" data-tauri-drag-region onDoubleClick={handleMaximize}>
       <div style={{ display: "flex", alignItems: "center", gap: "12px", height: "100%" }}>
         <div
           style={{
@@ -176,9 +227,38 @@ export const Titlebar: React.FC<TitlebarProps> = ({
                   <span>Export Catalog (CSV)</span>
                 </div>
               </button>
+
+              {onOpenDeviceManager && (
+                <>
+                  <div style={{ height: "1px", background: "var(--pk-border-subtle)", margin: "4px 0" }} />
+                  <button
+                    className="pk-shelf-item"
+                    style={{ border: "none", width: "100%", textAlign: "left", background: "transparent" }}
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onOpenDeviceManager();
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <HardDrive size={14} color="#E5A93C" />
+                      <span>USB E-Reader Sync...</span>
+                    </div>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
+
+        {onOpenDeviceManager && (
+          <button
+            className="pk-btn-icon"
+            onClick={onOpenDeviceManager}
+            title="USB / MTP E-Reader Hardware Manager"
+          >
+            <HardDrive size={15} />
+          </button>
+        )}
 
         <button
           className="pk-btn-icon"
@@ -196,8 +276,12 @@ export const Titlebar: React.FC<TitlebarProps> = ({
           <button className="pk-btn-icon" onClick={handleMinimize} title="Minimize">
             <Minus size={13} />
           </button>
-          <button className="pk-btn-icon" onClick={handleMaximize} title="Maximize">
-            <Square size={12} />
+          <button
+            className="pk-btn-icon"
+            onClick={handleMaximize}
+            title={isMaximized ? "Restore Window" : "Maximize Window"}
+          >
+            {isMaximized ? <Copy size={11} style={{ transform: "rotate(90deg)" }} /> : <Square size={12} />}
           </button>
           <button
             className="pk-btn-icon"

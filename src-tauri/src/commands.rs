@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use tauri::ipc::Response;
 use tauri::State;
 
 use crate::database::queries::{self, AnnotationView, BookMetadataUpdate, BookView, LibraryStats};
@@ -27,11 +28,11 @@ pub fn search_books(query: String, state: State<AppState>) -> Result<Vec<BookVie
 #[tauri::command]
 pub fn pick_files_dialog() -> Vec<String> {
     let files = rfd::FileDialog::new()
-        .add_filter("Supported Documents", &["epub", "pdf", "cbz", "cbr", "txt"])
+        .add_filter("Supported Documents", &["epub", "pdf", "cbz", "cbr", "txt", "md"])
         .add_filter("EPUB Books (*.epub)", &["epub"])
         .add_filter("PDF Documents (*.pdf)", &["pdf"])
         .add_filter("Comic Books (*.cbz, *.cbr)", &["cbz", "cbr"])
-        .add_filter("Plain Text (*.txt)", &["txt"])
+        .add_filter("Plain Text & Markdown (*.txt, *.md)", &["txt", "md"])
         .pick_files();
 
     match files {
@@ -88,12 +89,6 @@ pub fn import_book_file(file_path: String, state: State<AppState>) -> Result<Boo
         overview.title
     };
 
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("TXT")
-        .to_uppercase();
-
     // Store cover if extracted
     let mut cover_path_opt = None;
     if let Some(ref cover_b64) = overview.cover_image_data {
@@ -109,6 +104,7 @@ pub fn import_book_file(file_path: String, state: State<AppState>) -> Result<Boo
     }
 
     let conn = state.db.lock_conn();
+    let format = &overview.format;
     let new_id = queries::insert_book(
         &conn,
         &book_uuid,
@@ -116,12 +112,12 @@ pub fn import_book_file(file_path: String, state: State<AppState>) -> Result<Boo
         &title,
         &file_path,
         file_size,
-        &ext,
+        format,
         overview.page_count,
         &overview.authors,
         None,
         None,
-        &vec![ext.clone()],
+        std::slice::from_ref(format),
         None,
         None,
         overview.description.as_deref(),
@@ -149,7 +145,7 @@ pub fn import_directory_recursive(
     }
 
     let mut imported = Vec::new();
-    let supported_exts = ["epub", "pdf", "cbz", "cbr", "txt"];
+    let supported_exts = ["epub", "pdf", "cbz", "cbr", "txt", "md"];
 
     for entry in walkdir::WalkDir::new(root)
         .into_iter()
@@ -256,7 +252,7 @@ pub fn open_book_content(
                 epub_data = Some(epub);
             }
         }
-        "CBZ" => {
+        "CBZ" | "CBR" => {
             if let Ok(comic) = engine::comics::inspect_cbz(path) {
                 comic_data = Some(comic);
             }
@@ -275,6 +271,47 @@ pub fn open_book_content(
         comic_data,
         pdf_data,
     })
+}
+
+#[tauri::command]
+pub fn get_book_binary(
+    book_id: i64,
+    state: State<AppState>,
+) -> Result<Response, String> {
+    let conn = state.db.lock_conn();
+    let books = queries::get_all_books(&conn).map_err(|e| e.to_string())?;
+    let book = books
+        .into_iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| "Book not found".to_string())?;
+
+    let path = Path::new(&book.file_path);
+    if !path.exists() {
+        return Err(format!("File not found at: {}", book.file_path));
+    }
+
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
+    Ok(Response::new(bytes))
+}
+
+#[tauri::command]
+pub fn get_book_text(
+    book_id: i64,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let conn = state.db.lock_conn();
+    let books = queries::get_all_books(&conn).map_err(|e| e.to_string())?;
+    let book = books
+        .into_iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| "Book not found".to_string())?;
+
+    let path = Path::new(&book.file_path);
+    if !path.exists() {
+        return Err(format!("File not found at: {}", book.file_path));
+    }
+
+    fs::read_to_string(path).map_err(|e| format!("Failed to read text file: {}", e))
 }
 
 #[tauri::command]
@@ -334,6 +371,14 @@ pub fn search_in_book(
     } else if book.file_format == "TXT" {
         if let Ok(txt) = fs::read_to_string(path) {
             sections.push((0, "Document".to_string(), txt));
+        }
+    } else if book.file_format == "PDF" {
+        if let Ok(pdf_meta) = engine::pdf::inspect_pdf(path) {
+            for page_num in 1..=pdf_meta.page_count as u32 {
+                if let Ok(page_text) = engine::pdf::extract_pdf_page_text(path, page_num) {
+                    sections.push((page_num as usize, format!("Page {}", page_num), page_text));
+                }
+            }
         }
     }
 
@@ -452,7 +497,7 @@ pub fn export_library_catalog(
     };
 
     let save_dialog = rfd::FileDialog::new()
-        .set_file_name(&format!("pustakeum_library_backup.{}", ext))
+        .set_file_name(format!("pustakeum_library_backup.{}", ext))
         .add_filter(filter_name, &[ext])
         .save_file();
 
@@ -470,4 +515,173 @@ pub fn export_library_catalog(
     fs::write(&target_path, content).map_err(|e| format!("Failed to save export: {}", e))?;
 
     Ok(target_path.to_string_lossy().to_string())
+}
+
+// --- Native Window Control Commands ---
+
+#[tauri::command]
+pub fn toggle_window_maximize(window: tauri::Window) -> Result<bool, String> {
+    let is_max = window.is_maximized().map_err(|e| e.to_string())?;
+    if is_max {
+        window.unmaximize().map_err(|e| e.to_string())?;
+        Ok(false)
+    } else {
+        window.maximize().map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+pub fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|e| e.to_string())
+}
+
+// --- Sumatra-Style JSON Settings Persistence ---
+
+#[tauri::command]
+pub fn get_app_settings(state: State<AppState>) -> Result<crate::settings::AppSettings, String> {
+    Ok(crate::settings::load_settings(&state.storage_dir))
+}
+
+#[tauri::command]
+pub fn save_app_settings(
+    settings: crate::settings::AppSettings,
+    state: State<AppState>,
+) -> Result<(), String> {
+    crate::settings::save_settings(&state.storage_dir, &settings)
+}
+
+// =========================================================================
+// ENTERPRISE INTELLIGENCE, GPU RASTERING & HARDWARE SUBSYSTEM COMMANDS
+// =========================================================================
+
+/// 1. Runs local ONNX OCR pipeline generating transparent layout text layers
+#[tauri::command]
+pub fn cmd_run_ocr(
+    book_id: i64,
+    pages: Vec<usize>,
+    state: State<AppState>,
+) -> Result<Vec<crate::ai::hybrid::PageTextLayer>, String> {
+    let conn = state.db.lock_conn();
+    let books = queries::get_all_books(&conn).map_err(|e| e.to_string())?;
+    let book = books
+        .into_iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| "Book not found".to_string())?;
+
+    let path = Path::new(&book.file_path);
+    crate::ai::run_ocr_pipeline(path, &pages)
+}
+
+/// 2. Executes hybrid lexical (BM25 FTS5) and 384-dimensional dense vector search with RRF
+#[tauri::command]
+pub fn cmd_query_hybrid_search(
+    query: String,
+    limit: usize,
+    state: State<AppState>,
+) -> Result<Vec<crate::ai::hybrid::HybridSearchResult>, String> {
+    crate::ai::execute_hybrid_search(&state.db, &query, limit)
+}
+
+/// 3. Synthesizes 16-bit 24kHz mono PCM audio stream with real-time word boundary offsets
+#[tauri::command]
+pub fn cmd_generate_tts_pcm(
+    text: String,
+    voice_id: String,
+) -> Result<crate::ai::hybrid::TtsAudioPayload, String> {
+    crate::ai::generate_tts(&text, &voice_id)
+}
+
+/// 4. Injects native PDF annotation dictionary into raw PDF binary (/Annots)
+#[tauri::command]
+pub fn cmd_save_native_pdf_annotation(
+    book_id: i64,
+    annot: crate::engine::pdf_annotator::PdfAnnotSpec,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let conn = state.db.lock_conn();
+    let books = queries::get_all_books(&conn).map_err(|e| e.to_string())?;
+    let book = books
+        .into_iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| "Book not found".to_string())?;
+
+    let path = Path::new(&book.file_path);
+    crate::engine::pdf_annotator::inject_native_pdf_annotation(path, &annot)
+}
+
+/// 5. Automatically syncs highlight/note to local Anki instance with offline fallback
+#[tauri::command]
+pub async fn cmd_sync_anki_card(
+    deck_name: String,
+    card: crate::integrations::anki::AnkiCardData,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    crate::integrations::anki::sync_card_to_anki(&deck_name, &card, &state.storage_dir).await
+}
+
+/// 6. Runs a sandboxed WebAssembly / Host plugin task (Goodreads, OpenLibrary, Obsidian)
+#[tauri::command]
+pub fn cmd_run_wasm_plugin(
+    plugin_id: String,
+    input_data: String,
+) -> Result<String, String> {
+    crate::plugins::execute_plugin(&plugin_id, &input_data)
+}
+
+/// 7. Inspects and validates EPUB archive structure, container.xml, and OPF manifest
+#[tauri::command]
+pub fn cmd_validate_epub_archive(
+    epub_path: String,
+) -> Result<Vec<crate::engine::epub_validator::ValidationError>, String> {
+    let path = Path::new(&epub_path);
+    crate::engine::epub_validator::validate_epub(path)
+}
+
+/// 8. Detects connected physical and virtual e-reader hardware devices (Kobo, Kindle, Onyx)
+#[tauri::command]
+pub fn cmd_mtp_list_devices() -> Result<Vec<crate::hardware::EreaderDevice>, String> {
+    Ok(crate::hardware::detect_ereader_devices())
+}
+
+/// 9. Synchronizes books to an e-reader device with automatic KePub/AZW3 conversion
+#[tauri::command]
+pub fn cmd_sync_to_device(
+    device_id: String,
+    book_ids: Vec<i64>,
+    state: State<AppState>,
+) -> Result<crate::hardware::DeviceSyncProgress, String> {
+    let conn = state.db.lock_conn();
+    let all_books = queries::get_all_books(&conn).map_err(|e| e.to_string())?;
+    let selected_books: Vec<BookView> = all_books
+        .into_iter()
+        .filter(|b| book_ids.contains(&b.id))
+        .collect();
+
+    crate::hardware::sync_books_to_device(&device_id, &selected_books, &state.storage_dir)
+}
+
+/// 10. High-performance RGBA page rasterizer for zero-copy WebGL infinite virtualizer
+#[tauri::command]
+pub fn cmd_render_page_rgba(
+    book_id: i64,
+    page: usize,
+    target_width: Option<u32>,
+    target_height: Option<u32>,
+    state: State<AppState>,
+) -> Result<Response, String> {
+    let conn = state.db.lock_conn();
+    let books = queries::get_all_books(&conn).map_err(|e| e.to_string())?;
+    let book = books
+        .into_iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| "Book not found".to_string())?;
+
+    let path = Path::new(&book.file_path);
+    crate::engine::webgl::rasterize_page_to_rgba_buffer(
+        path,
+        page,
+        target_width.unwrap_or(900),
+        target_height.unwrap_or(1200),
+    )
 }

@@ -1,6 +1,19 @@
 import React from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { BookOpen, Edit3, Trash2, Tag, Calendar, Building, Hash } from "lucide-react";
 import { BookView } from "../../state/useLibraryStore";
+
+const resolveCoverSrc = (path?: string | null) => {
+  if (!path) return undefined;
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:") || path.startsWith("asset:")) {
+    return path;
+  }
+  try {
+    return convertFileSrc(path);
+  } catch {
+    return path;
+  }
+};
 
 interface InspectorProps {
   book: BookView | null;
@@ -9,6 +22,7 @@ interface InspectorProps {
   onDeleteBook: (id: number) => void;
   onRevealInExplorer: (filePath: string) => void;
   onConvertBook: (book: BookView) => void;
+  onOpenEpubEditor?: (book: BookView) => void;
 }
 
 export const Inspector: React.FC<InspectorProps> = ({
@@ -18,7 +32,14 @@ export const Inspector: React.FC<InspectorProps> = ({
   onDeleteBook,
   onRevealInExplorer,
   onConvertBook,
+  onOpenEpubEditor,
 }) => {
+  const [coverError, setCoverError] = React.useState(false);
+
+  React.useEffect(() => {
+    setCoverError(false);
+  }, [book?.id]);
+
   if (!book) {
     return (
       <div
@@ -46,8 +67,12 @@ export const Inspector: React.FC<InspectorProps> = ({
     <div className="pk-inspector">
       {/* Cover Image */}
       <div className="pk-cover-frame">
-        {book.cover_image_path ? (
-          <img src={book.cover_image_path} alt={book.title} />
+        {book.cover_image_path && !coverError ? (
+          <img
+            src={resolveCoverSrc(book.cover_image_path)}
+            alt={book.title}
+            onError={() => setCoverError(true)}
+          />
         ) : (
           <div
             style={{
@@ -97,7 +122,7 @@ export const Inspector: React.FC<InspectorProps> = ({
       </div>
 
       {/* Secondary Industrial Tools */}
-      <div style={{ display: "flex", gap: "6px" }}>
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
         <button
           className="pk-btn"
           style={{ flex: 1, justifyContent: "center", fontSize: "12px", padding: "6px 8px" }}
@@ -114,6 +139,16 @@ export const Inspector: React.FC<InspectorProps> = ({
         >
           <span>Convert Format</span>
         </button>
+        {book.file_format === "EPUB" && onOpenEpubEditor && (
+          <button
+            className="pk-btn"
+            style={{ width: "100%", justifyContent: "center", fontSize: "12px", padding: "6px 8px", background: "rgba(229, 169, 60, 0.12)", color: "#E5A93C", borderColor: "rgba(229, 169, 60, 0.3)" }}
+            onClick={() => onOpenEpubEditor(book)}
+            title="Open Live EPUB Split-Pane Code & Layout Editor"
+          >
+            <span>EPUB Code & Layout Editor</span>
+          </button>
+        )}
       </div>
 
       {/* Book Title & Authors */}

@@ -23,6 +23,9 @@ interface LibraryViewProps {
   }) => void;
   onRevealInExplorer: (filePath: string) => void;
   onConvertBook: (book: BookView) => void;
+  onOpenEpubEditor?: (book: BookView) => void;
+  viewMode: "table" | "grid";
+  onViewModeChange: (mode: "table" | "grid") => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -38,6 +41,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onSelectShelf,
   onRevealInExplorer,
   onConvertBook,
+  onOpenEpubEditor,
+  viewMode,
+  onViewModeChange,
 }) => {
   // Filter books according to selected virtual shelf
   const filteredBooks = useMemo(() => {
@@ -76,6 +82,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onOpenBook={onOpenBook}
         searchQuery={searchQuery}
         onSearchChange={onSearchChange}
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+        onEditMetadata={onEditMetadata}
+        onDeleteBook={onDeleteBook}
+        onRevealInExplorer={onRevealInExplorer}
+        onConvertBook={onConvertBook}
       />
       <Inspector
         book={activeBook}
@@ -84,6 +96,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onDeleteBook={onDeleteBook}
         onRevealInExplorer={onRevealInExplorer}
         onConvertBook={onConvertBook}
+        onOpenEpubEditor={onOpenEpubEditor}
       />
     </div>
   );

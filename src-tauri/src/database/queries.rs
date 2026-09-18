@@ -111,8 +111,22 @@ pub fn get_all_books(conn: &Connection) -> Result<Vec<BookView>> {
     Ok(result)
 }
 
+pub fn sanitize_fts5_query(query: &str) -> String {
+    let tokens: Vec<String> = query
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("\"{}\"*", s.trim()))
+        .collect();
+
+    tokens.join(" ")
+}
+
 pub fn search_books_fts(conn: &Connection, query: &str) -> Result<Vec<BookView>> {
-    let sanitized_query = format!("{}*", query.replace('\"', "").trim());
+    let sanitized_query = sanitize_fts5_query(query);
+    if sanitized_query.is_empty() {
+        return get_all_books(conn);
+    }
+
     let mut stmt = conn.prepare(
         r#"
         SELECT 
@@ -179,6 +193,7 @@ pub fn search_books_fts(conn: &Connection, query: &str) -> Result<Vec<BookView>>
     Ok(result)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn insert_book(
     conn: &Connection,
     uuid: &str,

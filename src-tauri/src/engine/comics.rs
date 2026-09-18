@@ -51,12 +51,27 @@ pub fn extract_cbz_page<P: AsRef<Path>>(path: P, page_index: usize) -> Result<Ve
     let file = File::open(path.as_ref()).map_err(|e| format!("Failed to open CBZ: {}", e))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid zip: {}", e))?;
 
-    let manifest = inspect_cbz(&path)?;
-    if page_index >= manifest.page_names.len() {
+    let mut image_entries = Vec::new();
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index(i) {
+            let name = file.name().to_string();
+            let lower = name.to_lowercase();
+            if lower.ends_with(".jpg")
+                || lower.ends_with(".jpeg")
+                || lower.ends_with(".png")
+                || lower.ends_with(".webp")
+            {
+                image_entries.push(name);
+            }
+        }
+    }
+    image_entries.sort();
+
+    if page_index >= image_entries.len() {
         return Err("Page index out of bounds".to_string());
     }
 
-    let target_name = &manifest.page_names[page_index];
+    let target_name = &image_entries[page_index];
     let mut zip_file = archive
         .by_name(target_name)
         .map_err(|e| format!("Page not found in archive: {}", e))?;
@@ -68,4 +83,3 @@ pub fn extract_cbz_page<P: AsRef<Path>>(path: P, page_index: usize) -> Result<Ve
 
     Ok(bytes)
 }
-

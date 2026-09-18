@@ -150,9 +150,9 @@ struct RawOpfMetadata {
     language: String,
 }
 
-fn parse_opf_xml(
-    xml: &str,
-) -> Result<(RawOpfMetadata, HashMap<String, String>, Vec<String>), String> {
+type ParsedOpf = (RawOpfMetadata, HashMap<String, String>, Vec<String>);
+
+fn parse_opf_xml(xml: &str) -> Result<ParsedOpf, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
@@ -243,15 +243,14 @@ fn resolve_cover_image<R: Read + std::io::Seek>(
     for (id, href) in manifest {
         let id_lower = id.to_lowercase();
         let href_lower = href.to_lowercase();
-        if id_lower.contains("cover") || href_lower.contains("cover") {
-            if href_lower.ends_with(".jpg")
+        if (id_lower.contains("cover") || href_lower.contains("cover"))
+            && (href_lower.ends_with(".jpg")
                 || href_lower.ends_with(".jpeg")
                 || href_lower.ends_with(".png")
-                || href_lower.ends_with(".webp")
-            {
-                cover_href = Some(href.clone());
-                break;
-            }
+                || href_lower.ends_with(".webp"))
+        {
+            cover_href = Some(href.clone());
+            break;
         }
     }
 
@@ -272,7 +271,6 @@ fn resolve_cover_image<R: Read + std::io::Seek>(
                 } else {
                     "image/jpeg"
                 };
-                // base64 encode using simple standard alphabet
                 let b64 = base64_encode(&img_bytes);
                 return Some(format!("data:{};base64,{}", mime, b64));
             }
@@ -291,9 +289,9 @@ fn clean_chapter_html(raw_html: &str) -> String {
     no_style.to_string()
 }
 
-fn base64_encode(data: &[u8]) -> String {
+pub fn base64_encode(data: &[u8]) -> String {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
 
     for chunk in data.chunks(3) {
         let b0 = chunk[0];
@@ -320,4 +318,3 @@ fn base64_encode(data: &[u8]) -> String {
 
     result
 }
-

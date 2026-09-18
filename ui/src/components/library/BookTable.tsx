@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, List, LayoutGrid } from "lucide-react";
 import { BookView } from "../../state/useLibraryStore";
+import { BookGrid } from "./BookGrid";
 
 interface BookTableProps {
   books: BookView[];
@@ -9,6 +10,12 @@ interface BookTableProps {
   onOpenBook: (book: BookView) => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  viewMode: "table" | "grid";
+  onViewModeChange: (mode: "table" | "grid") => void;
+  onEditMetadata?: () => void;
+  onDeleteBook?: (id: number) => void;
+  onRevealInExplorer?: (filePath: string) => void;
+  onConvertBook?: (book: BookView) => void;
 }
 
 type SortField = "title" | "authors" | "series" | "file_format" | "file_size_bytes" | "progress_percentage";
@@ -20,6 +27,12 @@ export const BookTable: React.FC<BookTableProps> = ({
   onOpenBook,
   searchQuery,
   onSearchChange,
+  viewMode,
+  onViewModeChange,
+  onEditMetadata,
+  onDeleteBook,
+  onRevealInExplorer,
+  onConvertBook,
 }) => {
   const [sortField, setSortField] = useState<SortField>("title");
   const [sortAsc, setSortAsc] = useState<boolean>(true);
@@ -134,13 +147,67 @@ export const BookTable: React.FC<BookTableProps> = ({
             }}
           />
         </div>
-        <div style={{ fontSize: "12px", color: "var(--pk-text-muted)" }}>
-          {books.length} {books.length === 1 ? "document" : "documents"}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "12px", color: "var(--pk-text-muted)", whiteSpace: "nowrap" }}>
+            {books.length} {books.length === 1 ? "document" : "documents"}
+          </span>
+          <div style={{ width: "1px", height: "16px", background: "var(--pk-border-subtle)", margin: "0 2px" }} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              background: "var(--pk-bg-base)",
+              border: "1px solid var(--pk-border-default)",
+              borderRadius: "var(--pk-radius-sm)",
+              padding: "2px",
+              gap: "2px",
+            }}
+          >
+            <button
+              className="pk-btn-icon"
+              onClick={() => onViewModeChange("table")}
+              title="List View (Table)"
+              style={{
+                background: viewMode === "table" ? "var(--pk-bg-active)" : "transparent",
+                color: viewMode === "table" ? "var(--pk-accent-primary)" : "var(--pk-text-muted)",
+                padding: "3px 6px",
+                borderRadius: "3px",
+              }}
+            >
+              <List size={14} />
+            </button>
+            <button
+              className="pk-btn-icon"
+              onClick={() => onViewModeChange("grid")}
+              title="Card Cover View (Grid)"
+              style={{
+                background: viewMode === "grid" ? "var(--pk-bg-active)" : "transparent",
+                color: viewMode === "grid" ? "var(--pk-accent-primary)" : "var(--pk-text-muted)",
+                padding: "3px 6px",
+                borderRadius: "3px",
+              }}
+            >
+              <LayoutGrid size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Table Column Headers */}
-      <div className="pk-table-header">
+      {viewMode === "grid" ? (
+        <BookGrid
+          books={sortedBooks}
+          selectedBookId={selectedBookId}
+          onSelectBook={onSelectBook}
+          onOpenBook={onOpenBook}
+          onEditMetadata={onEditMetadata ? (b) => { onSelectBook(b.id); onEditMetadata(); } : undefined}
+          onDeleteBook={onDeleteBook}
+          onRevealInExplorer={onRevealInExplorer}
+          onConvertBook={onConvertBook}
+        />
+      ) : (
+        <>
+          {/* Table Column Headers */}
+          <div className="pk-table-header">
         <div
           style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}
           onClick={() => handleSort("title")}
@@ -275,6 +342,8 @@ export const BookTable: React.FC<BookTableProps> = ({
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 };
