@@ -3,10 +3,7 @@
 > **"ग्रन्थाभ्यासो निरन्तरः"** — *Continuous dedication to reading and knowledge.*  
 > **The Sumatra-speed, Calibre-depth native e-reader & digital library engine.**
 
-[![Tauri v2](https://img.shields.io/badge/Tauri-v2.0-blue.svg?logo=tauri&logoColor=white)](https://tauri.app/)
-[![Rust Engine](https://img.shields.io/badge/Rust-2024%20Edition-black.svg?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![License: MIT/Apache-2.0](https://img.shields.io/badge/License-MIT%2FApache--2.0-green.svg)](LICENSE)
-[![Architecture](https://img.shields.io/badge/Architecture-Split--Engine%20Zero--Copy-orange.svg)]()
+
 
 ---
 
